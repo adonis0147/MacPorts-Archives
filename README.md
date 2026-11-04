@@ -1,6 +1,6 @@
 # MacPorts-Archives
 
-Unofficial MacPorts binary archives, signatures, checksums and corresponding source.
+Unofficial MacPorts binary archives, signatures, checksums and build provenance.
 See [Releases](https://github.com/adonis0147/MacPorts-Archives/releases) for available
 builds; this repository does not promise an archive until it appears there.
 Initial build targets are Intel macOS 12 (Monterey), including `git` and
@@ -13,8 +13,9 @@ Initial build targets are Intel macOS 12 (Monterey), including `git` and
   `.build-info.json` provenance. Versions, variants and architectures stay encoded
   in MacPorts' filenames; existing assets are not overwritten with different bytes.
 - `signing-key` holds the public `macports-forge.pem` key.
-- `source-*` releases hold source bundles, checksums, build metadata and license
-  reports. Each binary's `.build-info.json` identifies its corresponding source tag.
+- Source-review bundles remain private; this publisher does not create `source-*`
+  releases. New per-archive provenance records a private `source_capture_id`, not a
+  public source-download link.
 - VM disks, private signing keys and credentials are never published here.
 
 ## Configure MacPorts
@@ -72,17 +73,32 @@ name and exact filename, resolving to `/releases/download/git/<filename>`, for
 example. Prefix, applications/framework paths, C++ library and `.la` policy must
 match the configured site or MacPorts will filter it out.
 
-### 4. Install matching packages
+### 4. Prefer this archive site (optional)
+
+MacPorts sorts mirrors by latency, not their order in `archive_sites.conf`.
+To try GitHub before the official mirrors, add this to
+`/opt/local/etc/macports/macports.conf`:
+
+```text
+preferred_hosts github.com
+```
+
+If an active `preferred_hosts` line already exists, append `github.com` to that
+line once, preserving other hosts. This setting matches hostnames only, not URL
+paths such as `github.com/adonis0147`; it also affects other configured GitHub
+sources. The archive-site URL above restricts this source to MacPorts-Archives.
+Official mirrors remain enabled as fallbacks, including for dependencies.
+
+### 5. Install matching packages
 
 ```sh
-sudo port -b install git
-sudo port -b install mihomo +logging
+sudo port -v -b install git
+sudo port -v -b install mihomo +logging
 ```
 
 `-b` forbids a silent source-build fallback. Official binary sites remain available,
 so this flag alone does not prove this repository supplied the archive. Inspect
-verbose fetch output if origin matters. The Forge clean-consumer workflow disables
-all other sites to test this server specifically.
+verbose fetch output for this repository's GitHub release URL to confirm the origin.
 
 A newer Portfile revision or different variants may have no matching archive yet.
 Do not rename an old archive to make it fit. Existing installations can also bypass
@@ -94,24 +110,17 @@ MacPorts verifies `.rmd160` signatures using configured trusted public keys.
 Standalone `.sha256` files offer additional integrity checks but do not substitute
 for authenticating the signing key.
 
-Source releases include original fetched inputs, frozen Portfiles/patches/PortGroups,
-retained work/module caches, build configuration and recipe scripts. To reconstruct
-a split source download, download **all assets** from its source release into a
-new directory (the checksum manifest also covers metadata and license reports):
-
-```sh
-shasum -a 256 --check SHA256SUMS
-cat source.tar.gz.part* > source.tar.gz
-```
-
-Inspect the result before extracting into a new non-root directory; never use
-`sudo tar` on an uninspected source bundle.
+Source inputs and license-review bundles are captured privately, not published
+as release assets. A private capture ID is not a public source offer. Maintainers
+must arrange any required corresponding-source distribution and notices separately
+before distributing binaries; private capture alone does not establish compliance.
 
 Each package retains its own license. Recipe license strings are informational,
 not a replacement for actual upstream license terms. See [LICENSES](LICENSES/README.md)
-and the source release's report and upstream license files. There is no blanket
-MIT license for the binaries. Original Forge build recipes are MIT-licensed.
+and the upstream license files. There is no blanket MIT license for the binaries.
+Original Forge build recipes are MIT-licensed.
 
-Only bare Monterey boot/SSH was previously live-tested. The new complete package
-publication and clean-consumer pipeline is not yet live-validated; release assets
-and their workflow results determine availability.
+A local Monterey installation downloaded and activated the published Git archive.
+This does not establish clean-machine compatibility or success for other ports,
+variants or macOS versions. There is no automatic clean-consumer verification
+workflow; release assets determine current availability.
