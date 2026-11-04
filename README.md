@@ -42,12 +42,11 @@ The current key's **PEM SHA-256**, published in this repository's history, is:
 50682d774720a10a9be8c86e35837b5dbe540c277864bf7c37034512299149da
 ```
 
-The same public key is tracked as [`macports-forge.pem`](macports-forge.pem).
 Authenticate this repository/maintainer before trusting that fingerprint. It is
 not an SSH key fingerprint, and a checksum downloaded next to a key is not by
 itself proof of authenticity. Future publishing runs also report this fingerprint
 in their private workflow summary. A different key requires explicit rotation,
-not silently replacing these files.
+not silently replacing the release key or documented fingerprint.
 
 After verification:
 
