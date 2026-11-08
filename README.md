@@ -109,7 +109,8 @@ a download, so test on a clean installation when validating availability.
 [Check upstream updates](.github/workflows/check-updates.yml) runs on Ubuntu at
 05:43, 11:43, 17:43 and 23:43 UTC daily, or manually **on the default branch**.
 There are no push/PR triggers, VMs, private repository checkouts or private
-baseline downloads. Each run checks out the latest public default branch, shallow
+baseline downloads. Each run checks out the latest public default branch, downloads
+public baseline release assets, shallow
 clones the default branch of `macports/macports-ports`, and queries the latest
 stable GitHub release of `macports/macports-base` (removing a leading `v`). An
 upstream lookup failure fails the run; it never means “unchanged.” The checker
@@ -118,7 +119,9 @@ reads files as data and never executes upstream recipes.
 [`config/targets.json`](config/targets.json) maps target codenames to their expected
 Darwin major and architecture. Initially only `monterey` (Darwin 21, `x86_64`) is
 enabled. Add targets there, not separate workflows. Each target uses its own
-`updates/<target>.json` public baseline, produced by Forge **only after successful
+`<target>.json` public baseline asset on the
+[`update-baselines` release](https://github.com/adonis0147/MacPorts-Archives/releases/tag/update-baselines),
+produced by Forge **only after successful
 publication or a successful VM comparison against the last published plan**. A missing baseline requests a build. Changed or removed tracked
 recipes (including dependencies), changed shared resources, or a different stable
 MacPorts version also request one. An invalid baseline fails closed instead of
@@ -136,8 +139,10 @@ silently comparing the wrong target.
    ref must expose `build-ports.yml` with a `workflow_dispatch` input named `macos`.
    The request is `{"ref":"main","inputs":{"macos":"monterey"}}`. GitHub must
    recognize that workflow on Forge's default branch for dispatch to work.
-3. Have Forge publish the baseline protocol below to this repository's default
-   branch after publication or a successful unchanged-plan comparison. Forge's publishing credentials stay private; the
+3. Have Forge publish the baseline protocol below as `<target>.json` on the
+   `update-baselines` release after publication or a successful unchanged-plan
+   comparison. Forge creates the release automatically without marking it latest.
+   Baseline updates do not create Git commits. Forge's publishing credentials stay private; the
    public workflow's built-in `GITHUB_TOKEN` has only `contents: read`.
 4. Enable Actions and scheduled workflows here. Run manually from the default
    branch to initialize a missing baseline. Review changes to the checker and
@@ -173,6 +178,15 @@ outages or a cancellation between dispatch and save can cause an extra build.
 Cache contents are public, contain no credentials, and must not be treated as
 proof of publication. GitHub may delay schedules or disable them for inactivity;
 weekly checks depend on this workflow continuing to run.
+
+Baselines are release assets, not cached or Git-tracked files. Previously committed
+`updates/*.json` files, if any, are ignored and are not automatically deleted.
+Forge uploads a complete `.pending` replacement before deleting the old asset,
+then renames it. An upload failure preserves the old asset; a failed rename leaves
+the staged data available for retry. The replacement is not atomic, so a brief
+HTTP 404 can cause an extra build. Only 404 means missing; other download errors
+and invalid JSON fail the check instead of dispatching. The release must remain
+mutable, like the per-port releases.
 
 ### Baseline protocol (schema 1)
 
@@ -239,8 +253,9 @@ prettier --check README.md .github/workflows/check-updates.yml config/targets.js
 ```
 
 The script interface is `python3 scripts/check_updates.py --ports <local-ports-tree>`;
-optional `--targets`, `--baselines` and `--state` default to `config/targets.json`,
-`updates` and `.update-state/state.json`. **Running the script is not a dry run:** it queries the public release
+optional `--targets` and `--state` default to `config/targets.json` and
+`.update-state/state.json`. `--repository` selects the public baseline repository
+(default: `GITHUB_REPOSITORY`, or `adonis0147/MacPorts-Archives` locally). **Running the script is not a dry run:** it queries the public release
 API and may dispatch Forge using `FORGE_DISPATCH_TOKEN`. Tests do neither. Unit tests
 do not establish live GitHub cache, token, dispatch or macOS build success.
 

@@ -10,6 +10,7 @@ import subprocess
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
+from urllib.error import HTTPError
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts/check_updates.py"
 SPEC = importlib.util.spec_from_file_location("checker", SCRIPT)
@@ -155,6 +156,33 @@ class CheckerTests(unittest.TestCase):
         self.assertFalse(checker.cooling_down({**marker, "dispatched_at": "bad"}, fingerprint, NOW))
         self.assertEqual(self.check(version="2.12.0", now=NOW + timedelta(days=1))[0], fingerprint)
 
+    def test_downloads_baseline_release_asset(self):
+        open_url = Mock(return_value=io.BytesIO(json.dumps(self.baseline).encode()))
+        self.assertEqual(checker.download_baseline('owner/Archives', 'monterey', open_url), self.baseline)
+        request = open_url.call_args.args[0]
+        self.assertEqual(request.full_url,
+                         'https://github.com/owner/Archives/releases/download/update-baselines/monterey.json')
+        self.assertNotIn('Authorization', request.headers)
+        with self.assertRaises(ValueError):
+            checker.download_baseline('owner/Archives', '../secret', open_url)
+
+    def test_only_missing_assets_are_treated_as_no_baseline(self):
+        for status in (403, 404, 500):
+            with self.subTest(status=status):
+                error = HTTPError('url', status, 'failed', {}, io.BytesIO())
+                self.addCleanup(error.close)
+                open_url = Mock(side_effect=error)
+                if status == 404:
+                    self.assertIsNone(checker.download_baseline('owner/Archives', 'monterey', open_url))
+                else:
+                    with self.assertRaises(HTTPError):
+                        checker.download_baseline('owner/Archives', 'monterey', open_url)
+        for body in (b'invalid JSON', b'null', b'[]'):
+            with self.subTest(body=body), self.assertRaises(ValueError):
+                checker.download_baseline('owner/Archives', 'monterey', Mock(return_value=io.BytesIO(body)))
+        with self.assertRaises(OSError):
+            checker.download_baseline('owner/Archives', 'monterey', Mock(side_effect=OSError('offline')))
+
     def test_release_lookup(self):
         open_url = Mock(return_value=io.BytesIO(b'{"tag_name":"v2.11.6","prerelease":false}'))
         self.assertEqual(checker.latest_version(open_url), "2.11.6")
@@ -182,8 +210,9 @@ class CheckerTests(unittest.TestCase):
         state = self.root / "state.json"
         output = self.root / "output"
         argv = [str(SCRIPT), "--ports", str(self.root), "--targets", str(targets),
-                "--baselines", str(self.root / "updates"), "--state", str(state)]
+                "--repository", "owner/Archives", "--state", str(state)]
         with patch.object(checker.sys, "argv", argv), patch.object(checker, "latest_version", return_value="2.11.6"), \
+                patch.object(checker, "download_baseline", return_value=None) as download, \
                 patch.dict(os.environ, {"GITHUB_OUTPUT": str(output)}), patch.object(checker, "dispatch") as dispatch:
             dispatch.side_effect = subprocess.CalledProcessError(1, "gh")
             with self.assertRaises(subprocess.CalledProcessError):
@@ -196,6 +225,11 @@ class CheckerTests(unittest.TestCase):
             self.assertEqual(output.read_text(), "dispatched=true\n")
             dispatch.reset_mock()
             checker.main()
+            dispatch.assert_not_called()
+            download.assert_called_with('owner/Archives', 'monterey')
+            download.side_effect = OSError('baseline unavailable')
+            with self.assertRaises(OSError):
+                checker.main()
             dispatch.assert_not_called()
         with patch.object(checker.sys, "argv", argv), \
                 patch.object(checker, "latest_version", side_effect=OSError("offline")), \
@@ -210,8 +244,9 @@ class CheckerTests(unittest.TestCase):
         state = self.root / "state.json"
         output = self.root / "output"
         argv = [str(SCRIPT), "--ports", str(self.root), "--targets", str(targets),
-                "--baselines", str(self.root / "updates"), "--state", str(state)]
+                "--repository", "owner/Archives", "--state", str(state)]
         with patch.object(checker.sys, "argv", argv), patch.object(checker, "latest_version", return_value="2.11.6"), \
+                patch.object(checker, "download_baseline", return_value=None), \
                 patch.dict(os.environ, {"GITHUB_OUTPUT": str(output)}), \
                 patch.object(checker, "dispatch", side_effect=[None, subprocess.CalledProcessError(1, "gh")]) as dispatch:
             with self.assertRaises(subprocess.CalledProcessError):

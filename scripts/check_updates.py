@@ -10,6 +10,7 @@ import re
 import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 NAME = r"[A-Za-z0-9_.+-]+"
@@ -19,7 +20,7 @@ VERSION = r"[0-9]+\.[0-9]+\.[0-9]+"
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--targets", type=Path, default=Path("config/targets.json"))
-    parser.add_argument("--baselines", type=Path, default=Path("updates"))
+    parser.add_argument("--repository", default=os.environ.get("GITHUB_REPOSITORY") or "adonis0147/MacPorts-Archives")
     parser.add_argument("--state", type=Path, default=Path(".update-state/state.json"))
     parser.add_argument("--ports", type=Path, required=True)
     args = parser.parse_args()
@@ -33,8 +34,7 @@ def main():
     now = datetime.now(timezone.utc)
 
     for target, expected in targets.items():
-        baseline_path = args.baselines / f"{target}.json"
-        baseline = json.loads(baseline_path.read_text()) if baseline_path.exists() else None
+        baseline = download_baseline(args.repository, target)
         fingerprint, reasons = check(target, expected, baseline, args.ports, version, now)
         if not reasons:
             print(f"{target}: unchanged")
@@ -52,6 +52,24 @@ def main():
             with open(os.environ["GITHUB_OUTPUT"], "a") as output:
                 output.write("dispatched=true\n")
         print(f"{target}: dispatched ({', '.join(reasons)})")
+
+
+def download_baseline(repository, target, open_url=urlopen):
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository) or not safe_name(target):
+        raise ValueError("invalid baseline repository or target")
+    request = Request(f"https://github.com/{repository}/releases/download/update-baselines/{target}.json",
+                      headers={"User-Agent": "MacPorts-Archives", "Cache-Control": "no-cache"})
+    try:
+        with open_url(request, timeout=60) as response:
+            value = json.load(response)
+            if not isinstance(value, dict):
+                raise ValueError("baseline asset must be an object")
+            return value
+    except HTTPError as error:
+        if error.code == 404:
+            error.close()
+            return None
+        raise
 
 
 def load_targets(path):
