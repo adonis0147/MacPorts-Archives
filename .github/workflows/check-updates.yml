@@ -1,0 +1,53 @@
+name: Check upstream updates
+
+on:
+  schedule:
+    - cron: "43 5,11,17,23 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: public-update-check
+  cancel-in-progress: false
+
+jobs:
+  check:
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out latest public default branch and baselines
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Test checker
+        run: python3 -m unittest discover -s tests -v
+
+      - name: Restore latest dispatch markers
+        uses: actions/cache/restore@v5
+        with:
+          path: .update-state/state.json
+          key: update-dispatch-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: update-dispatch-v1-
+
+      - name: Fetch public ports default branch
+        run: git clone --depth 1 https://github.com/macports/macports-ports.git "$RUNNER_TEMP/macports-ports"
+
+      - name: Compare baselines and dispatch Forge
+        id: check
+        env:
+          FORGE_DISPATCH_TOKEN: ${{ secrets.FORGE_DISPATCH_TOKEN }}
+          FORGE_REPOSITORY: ${{ vars.FORGE_REPOSITORY || 'adonis0147/MacPorts-Forge' }}
+          FORGE_REF: ${{ vars.FORGE_REF || 'main' }}
+        run: python3 scripts/check_updates.py --ports "$RUNNER_TEMP/macports-ports"
+
+      - name: Save successful dispatch markers
+        if: ${{ !cancelled() && steps.check.outputs.dispatched == 'true' }}
+        uses: actions/cache/save@v5
+        with:
+          path: .update-state/state.json
+          key: update-dispatch-v1-${{ github.run_id }}-${{ github.run_attempt }}
