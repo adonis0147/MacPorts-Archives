@@ -141,16 +141,17 @@ class CheckerTests(unittest.TestCase):
         fingerprint = self.check(now=NOW + timedelta(days=7))[0]
         self.assertEqual(self.check(now=NOW + timedelta(days=8))[0], fingerprint)
         marker = {"fingerprint": fingerprint, "dispatched_at": (NOW + timedelta(days=7)).isoformat()}
-        self.assertTrue(checker.cooling_down(marker, fingerprint, NOW + timedelta(days=7, hours=23)))
-        self.assertFalse(checker.cooling_down(marker, fingerprint, NOW + timedelta(days=8)))
+        self.assertTrue(checker.cooling_down(marker, fingerprint, NOW + timedelta(days=7, minutes=59)))
+        self.assertFalse(checker.cooling_down(marker, fingerprint, NOW + timedelta(days=7, hours=1)))
         del self.baseline["checked_at"]
         self.assertEqual(self.check()[1], ["weekly safety check due"])
 
     def test_cooldown_exact_boundary_and_new_state(self):
         fingerprint = self.check(version="2.12.0")[0]
         marker = {"fingerprint": fingerprint, "dispatched_at": NOW.isoformat()}
-        self.assertTrue(checker.cooling_down(marker, fingerprint, NOW + timedelta(hours=23)))
-        self.assertFalse(checker.cooling_down(marker, fingerprint, NOW + timedelta(hours=24)))
+        self.assertTrue(checker.cooling_down(marker, fingerprint, NOW + timedelta(hours=1, microseconds=-1)))
+        self.assertFalse(checker.cooling_down(marker, fingerprint, NOW + timedelta(hours=1)))
+        self.assertFalse(checker.cooling_down(marker, fingerprint, NOW + timedelta(hours=6)))
         self.assertFalse(checker.cooling_down(marker, "new-state", NOW))
         self.assertFalse(checker.cooling_down(None, fingerprint, NOW))
         self.assertFalse(checker.cooling_down({**marker, "dispatched_at": "bad"}, fingerprint, NOW))

@@ -167,8 +167,8 @@ Successful **dispatches**, not successful builds, are recorded in a public Actio
 cache marker containing each target's requested-state fingerprint and dispatch
 time. The fingerprint covers target identity, baseline, current tracked directory
 digests and current MacPorts version. An identical state is suppressed for less
-than 24 hours; failed builds are therefore retried after 24 hours while the
-baseline remains stale. Changed state can dispatch immediately. No marker is
+than one hour. Failed builds are eligible for retry after that hour while the
+baseline remains stale: rerun manually, or wait for the next six-hourly scheduled check. Changed state can dispatch immediately. No marker is
 written for a failed dispatch. If one target succeeds and another fails, the
 successful marker is still saved. A successful dispatch does not itself advance
 the public baseline or its `checked_at` timestamp.

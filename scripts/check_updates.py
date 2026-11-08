@@ -40,7 +40,7 @@ def main():
             print(f"{target}: unchanged")
             continue
         if cooling_down(state.get(target), fingerprint, now):
-            print(f"{target}: dispatch suppressed for 24h ({', '.join(reasons)})")
+            print(f"{target}: dispatch suppressed for 1h ({', '.join(reasons)})")
             continue
         dispatch(target)
         state[target] = {"fingerprint": fingerprint, "dispatched_at": datetime.now(timezone.utc).isoformat()}
@@ -200,7 +200,7 @@ def cooling_down(marker, fingerprint, now):
         age = now - utc_timestamp(marker.get("dispatched_at"))
     except (ValueError, TypeError):
         return False
-    return timedelta(0) <= age < timedelta(hours=24)
+    return timedelta(0) <= age < timedelta(hours=1)
 
 
 def latest_version(open_url=urlopen):
