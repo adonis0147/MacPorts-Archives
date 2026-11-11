@@ -179,14 +179,19 @@ def check(target, expected, baseline, ports, version, now):
         reasons.append("missing baseline")
     else:
         validate_baseline(baseline, target, expected)
-        directories = {directory: directory_digest(ports, directory) for directory in baseline["directories"]}
-        if directories != baseline["directories"]:
-            reasons.append("recipe/dependency/resources changed or removed")
+        requested = {}
+        for spec in baseline["specs"]:
+            matches = [directory for directory in baseline["directories"]
+                       if directory != "_resources" and directory.split("/")[1] == spec[0]]
+            # shortcut: subports need an explicit recipe mapping before they can be tracked.
+            if len(matches) != 1:
+                raise ValueError(f"expected one requested recipe directory for {spec[0]}")
+            requested[matches[0]] = baseline["directories"][matches[0]]
+        directories = {directory: directory_digest(ports, directory) for directory in requested}
+        if directories != requested:
+            reasons.append("requested port recipe changed or removed")
         if version != baseline["macports_version"]:
             reasons.append("MacPorts release changed")
-        checked = utc_timestamp(baseline["checked_at"]) if "checked_at" in baseline else None
-        if checked is None or now - checked >= timedelta(days=7):
-            reasons.append("weekly safety check due")
     # Baseline identity resets cooldown after publication, but no daily bucket bypasses it.
     fingerprint = json_digest({"target": target, "expected": expected, "baseline": baseline,
                                "directories": directories, "macports_version": version})

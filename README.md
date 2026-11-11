@@ -122,10 +122,18 @@ enabled. Add targets there, not separate workflows. Each target uses its own
 `<target>.json` public baseline asset on the
 [`update-baselines` release](https://github.com/adonis0147/MacPorts-Archives/releases/tag/update-baselines),
 produced by Forge **only after successful
-publication or a successful VM comparison against the last published plan**. A missing baseline requests a build. Changed or removed tracked
-recipes (including dependencies), changed shared resources, or a different stable
-MacPorts version also request one. An invalid baseline fails closed instead of
-silently comparing the wrong target.
+publication or a successful VM comparison against the last published plan**. A
+missing baseline requests a build. Changed or removed **requested port recipes**,
+or a different stable MacPorts version, also request one. Dependency-only and shared
+`_resources` changes do not request builds. An invalid baseline fails closed instead
+of silently comparing the wrong target.
+
+This is a scheduling filter, not a per-port build selector. Forge is unchanged:
+when dispatched, it may still rebuild unchanged requested ports because its plan
+includes dependencies. Recipe changes are detected by file hashes, not by evaluating
+version/revision, so even a recipe-only edit can dispatch a check. This avoids running
+upstream Tcl in the public workflow. It is intended for binary-only consumers using
+`port -b upgrade outdated`; there is no weekly forced dispatch.
 
 ### Maintainer setup and security
 
@@ -153,20 +161,18 @@ One concurrency group serializes scheduled/manual runs without cancelling active
 checks. Actions cache restore/save uses the normal Actions cache runtime token;
 no `actions: write` grant to this repository's `GITHUB_TOKEN` is needed.
 
-### Weekly safety and retries
+### Retries
 
 Forge refreshes `checked_at` after successful publication or a successful VM
 comparison confirming that the plan matches the last successfully published plan.
 That comparison acknowledges harmless recipe changes without advancing the
-published package plan. If that UTC timestamp is at least seven days old,
-a full build is requested as a safety check (for inputs not captured by recipe
-hashes). Missing `checked_at` is also immediately due; malformed timestamps fail.
-This is a seven-day age check, not a calendar-week bucket.
+published package plan. The timestamp is validated when present, but its age or
+absence does not request a build.
 
 Successful **dispatches**, not successful builds, are recorded in a public Actions
 cache marker containing each target's requested-state fingerprint and dispatch
 time. The fingerprint covers target identity, baseline, current tracked directory
-digests and current MacPorts version. An identical state is suppressed for less
+digests for requested ports and current MacPorts version. An identical state is suppressed for less
 than one hour. Failed builds are eligible for retry after that hour while the
 baseline remains stale: rerun manually, or wait for the next six-hourly scheduled check. Changed state can dispatch immediately. No marker is
 written for a failed dispatch. If one target succeeds and another fails, the
@@ -177,7 +183,7 @@ Cache markers are best-effort deduplication, not a durable queue: eviction, cach
 outages or a cancellation between dispatch and save can cause an extra build.
 Cache contents are public, contain no credentials, and must not be treated as
 proof of publication. GitHub may delay schedules or disable them for inactivity;
-weekly checks depend on this workflow continuing to run.
+update checks depend on this workflow continuing to run.
 
 Baselines are release assets, not cached or Git-tracked files. Previously committed
 `updates/*.json` files, if any, are ignored and are not automatically deleted.
@@ -214,14 +220,21 @@ Example shape (replace placeholder digests with real lowercase SHA-256 values):
 - `specs` is a nonempty list of lists: port name first, then individual signed
   variant tokens such as `+logging` (negative variants are also accepted). These
   describe Forge's requested ports; the public checker does not resolve dependencies.
+  Each requested name must match exactly one recipe directory's final component
+  (for example, `git` matches `devel/git`). Missing or ambiguous matches fail the
+  check. Subports whose names differ from their recipe directory are not supported;
+  they need an explicit producer-supplied mapping before being configured.
 - `directories` must include **every recipe directory used by the build, including
   transitive dependencies**, plus the **entire `_resources` tree**. Forge resolves
-  that closure; the public checker compares exactly those directories. Newly
-  introduced dependencies are discovered when Forge rebuilds a changed recipe.
+  that closure; the public checker validates all entries but compares only requested
+  port directories. Dependency and `_resources` digests remain in the schema for
+  compatibility with Forge but do not trigger dispatch. Newly introduced dependencies
+  are discovered when Forge rebuilds a changed recipe.
 - Directory keys are upstream-root-relative POSIX paths: exactly `category/name`
   or `_resources`. Each component allows only ASCII letters, numbers, `_`, `.`,
   `+`, `-`; components `.` and `..` are forbidden. Absolute paths, backslashes,
-  extra levels and symlinked directory roots/ancestors are rejected.
+  and extra levels are rejected. Requested recipe directories also reject symlinked
+  roots/ancestors before hashing.
 - For each directory, recursively collect all files and symlinks, including hidden
   files. Paths in records are POSIX paths **relative to that directory**, not the
   ports-tree root. A regular-file record is
@@ -240,7 +253,7 @@ Example shape (replace placeholder digests with real lowercase SHA-256 values):
 - `checked_at` is an ISO UTC timestamp (`Z` or `+00:00`), representing the last
   successful publication or full VM check against the published plan, never merely
   a public polling run.
-  Older schema-1 producers may omit it, which makes the weekly safety check due.
+  Older schema-1 producers may omit it; neither omission nor age triggers dispatch.
 
 ### Local validation
 

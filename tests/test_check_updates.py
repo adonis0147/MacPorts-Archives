@@ -25,7 +25,7 @@ class CheckerTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        for directory in ("devel/git", "devel/dependency", "_resources/port1.0"):
+        for directory in ("devel/git", "net/mihomo", "devel/dependency", "_resources/port1.0"):
             path = self.root / directory
             path.mkdir(parents=True)
             (path / "recipe").write_text(directory)
@@ -37,7 +37,7 @@ class CheckerTests(unittest.TestCase):
             "macports_version": "2.11.6",
             "checked_at": NOW.isoformat(),
             "directories": {directory: checker.directory_digest(self.root, directory)
-                            for directory in ("devel/git", "devel/dependency", "_resources")},
+                            for directory in ("devel/git", "net/mihomo", "devel/dependency", "_resources")},
         }
 
     def check(self, baseline=None, version="2.11.6", now=NOW, target="monterey", expected=None):
@@ -48,19 +48,42 @@ class CheckerTests(unittest.TestCase):
     def test_unchanged(self):
         self.assertEqual(self.check()[1], [])
 
-    def test_dependency_resources_and_recipe_changes(self):
-        for directory in self.baseline["directories"]:
+    def test_requested_recipe_changes(self):
+        for directory in ("devel/git", "net/mihomo"):
             with self.subTest(directory=directory):
                 path = self.root / directory / "new-file"
                 path.write_text("new content")
-                self.assertIn("changed", self.check()[1][0])
+                self.assertEqual(self.check()[1], ["requested port recipe changed or removed"])
                 path.unlink()
 
-    def test_removed_directory(self):
+    def test_dependency_and_resources_changes_are_ignored(self):
+        fingerprint = self.check()[0]
+        for directory in ("devel/dependency", "_resources"):
+            with self.subTest(directory=directory):
+                (self.root / directory / "new-file").write_text("new content")
+                self.assertEqual(self.check(), (fingerprint, []))
         path = self.root / "devel/dependency"
+        for file in path.iterdir():
+            file.unlink()
+        path.rmdir()
+        self.assertEqual(self.check(), (fingerprint, []))
+
+    def test_removed_requested_directory(self):
+        path = self.root / "devel/git"
         (path / "recipe").unlink()
         path.rmdir()
         self.assertIn("removed", self.check()[1][0])
+
+    def test_missing_or_ambiguous_requested_recipe_mapping(self):
+        for directory in ("devel/git", "other/git"):
+            with self.subTest(directory=directory):
+                baseline = copy.deepcopy(self.baseline)
+                if directory == "devel/git":
+                    del baseline["directories"][directory]
+                else:
+                    baseline["directories"][directory] = "0" * 64
+                with self.assertRaisesRegex(ValueError, "requested recipe directory for git"):
+                    self.check(baseline)
 
     def test_digest_exact_protocol_and_symlinks(self):
         path = self.root / "test/recipe"
@@ -105,7 +128,7 @@ class CheckerTests(unittest.TestCase):
     def test_symlink_ancestors_rejected(self):
         (self.root / "alias").symlink_to(self.root / "devel", target_is_directory=True)
         baseline = copy.deepcopy(self.baseline)
-        baseline["directories"]["alias/git"] = "0" * 64
+        baseline["directories"]["alias/git"] = baseline["directories"].pop("devel/git")
         with self.assertRaises(ValueError):
             self.check(baseline)
 
@@ -135,16 +158,10 @@ class CheckerTests(unittest.TestCase):
     def test_release_update(self):
         self.assertEqual(self.check(version="2.12.0")[1], ["MacPorts release changed"])
 
-    def test_weekly_boundary_and_missing_timestamp(self):
-        self.assertEqual(self.check(now=NOW + timedelta(days=7, microseconds=-1))[1], [])
-        self.assertEqual(self.check(now=NOW + timedelta(days=7))[1], ["weekly safety check due"])
-        fingerprint = self.check(now=NOW + timedelta(days=7))[0]
-        self.assertEqual(self.check(now=NOW + timedelta(days=8))[0], fingerprint)
-        marker = {"fingerprint": fingerprint, "dispatched_at": (NOW + timedelta(days=7)).isoformat()}
-        self.assertTrue(checker.cooling_down(marker, fingerprint, NOW + timedelta(days=7, minutes=59)))
-        self.assertFalse(checker.cooling_down(marker, fingerprint, NOW + timedelta(days=7, hours=1)))
+    def test_old_or_missing_timestamp_does_not_force_dispatch(self):
+        self.assertEqual(self.check(now=NOW + timedelta(days=30))[1], [])
         del self.baseline["checked_at"]
-        self.assertEqual(self.check()[1], ["weekly safety check due"])
+        self.assertEqual(self.check()[1], [])
 
     def test_cooldown_exact_boundary_and_new_state(self):
         fingerprint = self.check(version="2.12.0")[0]
